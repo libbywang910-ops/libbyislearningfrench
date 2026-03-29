@@ -194,6 +194,19 @@ button {
 .task-text.done { color: var(--text-3); text-decoration: line-through; }
 .task-dur { font-size: 12px; color: var(--text-3); white-space: nowrap; }
 
+.task-item .task-name { flex: 1; font-size: 14px; cursor: pointer; }
+.task-item .task-name.done { color: var(--text-3); text-decoration: line-through; }
+.task-item .task-name:hover:not(.done) { color: var(--purple); }
+.task-item input.edit-name { flex: 1; font-size: 14px; border: 1px solid var(--border-strong); border-radius: 4px; padding: 4px 8px; font-family: 'DM Sans', sans-serif; outline: none; }
+.task-item input.edit-name:focus { border-color: var(--green); }
+.task-item input.edit-dur { width: 70px; font-size: 12px; border: 1px solid var(--border-strong); border-radius: 4px; padding: 4px 8px; font-family: 'DM Mono', monospace; text-align: center; }
+.task-item input.edit-dur:focus { border-color: var(--green); }
+.task-item .delete-btn { width: 24px; height: 24px; border-radius: 50%; background: var(--red-light); color: var(--red); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; opacity: 0; transition: opacity .15s; }
+.task-item:hover .delete-btn { opacity: 1; }
+.task-item .delete-btn:hover { background: var(--red); color: white; }
+.task-edit-row { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.task-edit-btn { font-size: 12px; }
+
 .bar-wrap { background: var(--surface2); border-radius: 4px; height: 5px; overflow: hidden; margin-top: 6px; }
 .bar { height: 100%; border-radius: 4px; background: var(--green); transition: width .4s; }
 .bar.purple { background: var(--purple); }
@@ -476,7 +489,13 @@ button {
 
         <!-- Tasks -->
         <div class="card">
-          <div class="card-title" id="task-title">今日任务</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+            <div class="card-title" id="task-title" style="margin-bottom:0">今日任务</div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-sm" onclick="addNewTask()">+ 添加任务</button>
+              ${hasCustomTasks() ? '<button class="btn btn-sm" onclick="restoreDefaultTasks()" style="color:var(--text-3)">恢复默认</button>' : ''}
+            </div>
+          </div>
           <div id="task-list"></div>
           <div style="margin-top:12px">
             <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-3);margin-bottom:4px">
@@ -662,8 +681,11 @@ state = Object.assign({
   streak:0, currentLesson:1, weekMins:0, totalMins:0,
   weekDots:[false,false,false,false,false,false,false],
   lastCheckin:'', tasksDone:[], startDate:todayStr(),
-  vocabNote:'', reflection:'', aiPlan:''
+  vocabNote:'', reflection:'', aiPlan:'',
+  customWeekdayTasks:null, customWeekendTasks:null
 }, state);
+
+let editingTaskIndex = null;
 
 // Anki Cards State
 let cards = JSON.parse(localStorage.getItem('fr_cards_v1')||'[]');
@@ -889,10 +911,162 @@ function showApp(){
   render();
 }
 
+// ============ TASK MANAGEMENT ============
+function getTasks(){
+  const we = isWeekend();
+  if(we){
+    return state.customWeekendTasks || WEEKEND_TASKS;
+  }
+  return state.customWeekdayTasks || WEEKDAY_TASKS;
+}
+
+function hasCustomTasks(){
+  return state.customWeekdayTasks !== null || state.customWeekendTasks !== null;
+}
+
+function saveCustomTasks(){
+  save();
+  if(hasCloudConfig()){
+    saveToCloud({ dashboard: state, cards: cards, updatedAt: Date.now() });
+  }
+}
+
+function restoreDefaultTasks(){
+  if(confirm('确定要恢复默认任务吗？自定义的任务将被清除。')){
+    state.customWeekdayTasks = null;
+    state.customWeekendTasks = null;
+    saveCustomTasks();
+    render();
+  }
+}
+
+function startEditTask(index){
+  editingTaskIndex = index;
+  renderTasks();
+  const input = document.querySelector('.edit-name-input');
+  if(input) input.focus();
+}
+
+function cancelEditTask(){
+  editingTaskIndex = null;
+  renderTasks();
+}
+
+function saveTaskEdit(index){
+  const nameInput = document.querySelector('.edit-name-input');
+  const durInput = document.querySelector('.edit-dur-input');
+  if(!nameInput || !durInput) return;
+  
+  const newLabel = nameInput.value.trim();
+  const newDur = durInput.value.trim();
+  
+  if(!newLabel || !newDur){
+    alert('请填写任务名称和时长');
+    return;
+  }
+  
+  const we = isWeekend();
+  const tasks = getTasks();
+  const task = tasks[index];
+  
+  if(we){
+    if(!state.customWeekendTasks) state.customWeekendTasks = JSON.parse(JSON.stringify(WEEKEND_TASKS));
+    state.customWeekendTasks[index] = { ...task, label: newLabel, dur: newDur, mins: parseInt(newDur) || task.mins };
+  } else {
+    if(!state.customWeekdayTasks) state.customWeekdayTasks = JSON.parse(JSON.stringify(WEEKDAY_TASKS));
+    state.customWeekdayTasks[index] = { ...task, label: newLabel, dur: newDur, mins: parseInt(newDur) || task.mins };
+  }
+  
+  editingTaskIndex = null;
+  saveCustomTasks();
+  render();
+}
+
+function deleteTask(index){
+  if(!confirm('确定要删除这个任务吗？')) return;
+  
+  const we = isWeekend();
+  if(we){
+    if(!state.customWeekendTasks) state.customWeekendTasks = JSON.parse(JSON.stringify(WEEKEND_TASKS));
+    state.customWeekendTasks.splice(index, 1);
+  } else {
+    if(!state.customWeekdayTasks) state.customWeekdayTasks = JSON.parse(JSON.stringify(WEEKDAY_TASKS));
+    state.customWeekdayTasks.splice(index, 1);
+  }
+  
+  saveCustomTasks();
+  render();
+}
+
+function addNewTask(){
+  const name = prompt('输入新任务名称：', '例如：听力练习');
+  if(!name || !name.trim()) return;
+  
+  const dur = prompt('输入任务时长（如 10分钟）：', '10分钟');
+  if(!dur || !dur.trim()) return;
+  
+  const mins = parseInt(dur) || 10;
+  const newTask = { label: name.trim(), dur: dur.trim(), mins: mins };
+  
+  const we = isWeekend();
+  if(we){
+    if(!state.customWeekendTasks) state.customWeekendTasks = JSON.parse(JSON.stringify(WEEKEND_TASKS));
+    state.customWeekendTasks.push(newTask);
+  } else {
+    if(!state.customWeekdayTasks) state.customWeekdayTasks = JSON.parse(JSON.stringify(WEEKDAY_TASKS));
+    state.customWeekdayTasks.push(newTask);
+  }
+  
+  saveCustomTasks();
+  render();
+}
+
+function renderTasks(){
+  const tl = document.getElementById('task-list');
+  const tasks = getTasks();
+  tl.innerHTML = '';
+  let doneCount = 0;
+  
+  tasks.forEach((t, i) => {
+    const key = todayStr() + '-' + i;
+    const done = state.tasksDone.includes(key);
+    if(done) doneCount++;
+    
+    const row = document.createElement('div');
+    row.className = 'task-item';
+    
+    if(editingTaskIndex === i){
+      row.innerHTML = `
+        <div class="task-check ${done?'done':''}"></div>
+        <input type="text" class="edit-name-input" value="${t.label}" placeholder="任务名称" onkeydown="if(event.key==='Enter')saveTaskEdit(${i})">
+        <input type="text" class="edit-dur-input" value="${t.dur}" placeholder="时长" style="width:70px;text-align:center;border:1px solid var(--border-strong);border-radius:4px;padding:4px 8px;font-family:'DM Mono',monospace" onkeydown="if(event.key==='Enter')saveTaskEdit(${i})">
+        <button class="btn btn-sm btn-green" onclick="saveTaskEdit(${i})" style="padding:4px 8px">保存</button>
+        <button class="btn btn-sm" onclick="cancelEditTask()" style="padding:4px 8px">取消</button>
+        <button class="delete-btn" onclick="deleteTask(${i})" style="opacity:1">&times;</button>
+      `;
+    } else {
+      row.innerHTML = `
+        <div class="task-check ${done?'done':''}"></div>
+        <div class="task-name ${done?'done':''}" onclick="toggleTask(${i},${t.mins})">${t.label}</div>
+        <div class="task-dur">${t.dur}</div>
+        <button class="btn btn-sm" onclick="startEditTask(${i})" style="padding:4px 6px;opacity:0.5;font-size:11px">编辑</button>
+        <button class="delete-btn" onclick="deleteTask(${i})">&times;</button>
+      `;
+      row.querySelector('.task-check').onclick = () => toggleTask(i, t.mins);
+    }
+    
+    tl.appendChild(row);
+  });
+  
+  const pct = tasks.length ? Math.round(doneCount/tasks.length*100) : 0;
+  document.getElementById('prog-txt').textContent = doneCount + ' / ' + tasks.length;
+  document.getElementById('prog-bar').style.width = pct + '%';
+}
+
 // ============ RENDER ============
 function render(){
   const we = isWeekend();
-  const tasks = we ? WEEKEND_TASKS : WEEKDAY_TASKS;
+  const tasks = getTasks();
   const todayDow = new Date().getDay();
   const cur = LESSONS[state.currentLesson-1];
   const hour = new Date().getHours();
@@ -913,24 +1087,7 @@ function render(){
 
   document.getElementById('task-title').textContent = we ? '今日任务 — 周末（约2.5小时）' : '今日任务 — 工作日（30分钟）';
 
-  const tl = document.getElementById('task-list');
-  tl.innerHTML='';
-  let doneCount=0;
-  tasks.forEach((t,i)=>{
-    const key=todayStr()+'-'+i;
-    const done=state.tasksDone.includes(key);
-    if(done) doneCount++;
-    const row=document.createElement('div');
-    row.className='task-item';
-    row.innerHTML=`<div class="task-check ${done?'done':''}"></div>
-      <div class="task-text ${done?'done':''}">${t.label}</div>
-      <div class="task-dur">${t.dur}</div>`;
-    row.onclick=()=>toggleTask(i,t.mins);
-    tl.appendChild(row);
-  });
-  const pct=tasks.length?Math.round(doneCount/tasks.length*100):0;
-  document.getElementById('prog-txt').textContent=doneCount+' / '+tasks.length;
-  document.getElementById('prog-bar').style.width=pct+'%';
+  renderTasks();
 
   const ft=document.getElementById('focus-tip');
   if(cur&&cur.focus){ft.style.display='block';ft.textContent='今日重点：'+cur.focus;}
@@ -1008,19 +1165,29 @@ function render(){
 }
 
 // ============ ACTIONS ============
-function toggleTask(i,mins){
-  const key=todayStr()+'-'+i;
-  const idx=state.tasksDone.indexOf(key);
-  if(idx>=0){
-    state.tasksDone.splice(idx,1);
-    state.weekMins=Math.max(0,state.weekMins-mins);
-    state.totalMins=Math.max(0,state.totalMins-mins);
+function toggleTask(i, mins){
+  const tasks = getTasks();
+  const task = tasks[i];
+  if(!task) return;
+  
+  const key = todayStr() + '-' + i;
+  const idx = state.tasksDone.indexOf(key);
+  const taskMins = task.mins || mins;
+  
+  if(idx >= 0){
+    state.tasksDone.splice(idx, 1);
+    state.weekMins = Math.max(0, state.weekMins - taskMins);
+    state.totalMins = Math.max(0, state.totalMins - taskMins);
   } else {
     state.tasksDone.push(key);
-    state.weekMins+=mins;
-    state.totalMins+=mins;
+    state.weekMins += taskMins;
+    state.totalMins += taskMins;
   }
-  save();render();
+  save();
+  if(hasCloudConfig()){
+    saveToCloud({ dashboard: state, cards: cards, updatedAt: Date.now() });
+  }
+  render();
 }
 
 function checkIn(){
@@ -1068,7 +1235,7 @@ async function generatePlan(force){
 
   const cur=LESSONS[state.currentLesson-1];
   const we=isWeekend();
-  const tasks=we?WEEKEND_TASKS:WEEKDAY_TASKS;
+  const tasks=getTasks();
   const doneCount=tasks.filter((_,i)=>state.tasksDone.includes(todayStr()+'-'+i)).length;
 
   planEl.className='ai-plan loading';
