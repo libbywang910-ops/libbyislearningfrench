@@ -379,6 +379,48 @@ button {
 
 .tab-content { display: none; }
 .tab-content.active { display: block; }
+
+/* Continue Learning Modal */
+.continue-modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.5);
+  z-index: 100;
+  justify-content: center;
+  align-items: center;
+  padding: 1rem;
+}
+.continue-modal.show { display: flex; }
+.continue-content {
+  background: var(--surface);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 400px;
+  padding: 1.5rem;
+}
+.continue-option {
+  display: block;
+  width: 100%;
+  padding: 14px 16px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  margin-bottom: 10px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 14px;
+  color: var(--text);
+  transition: all .15s;
+}
+.continue-option:hover { background: var(--purple-light); border-color: var(--purple); }
+.continue-option:last-child { margin-bottom: 0; }
+.continue-option-title { font-weight: 500; margin-bottom: 4px; }
+.continue-option-desc { font-size: 12px; color: var(--text-3); }
+.continue-option:hover .continue-option-desc { color: var(--purple); }
 </style>
 </head>
 <body>
@@ -493,7 +535,7 @@ button {
             <div class="card-title" id="task-title" style="margin-bottom:0">今日任务</div>
             <div style="display:flex;gap:8px">
               <button class="btn btn-sm" onclick="addNewTask()">+ 添加任务</button>
-              ${hasCustomTasks() ? '<button class="btn btn-sm" onclick="restoreDefaultTasks()" style="color:var(--text-3)">恢复默认</button>' : ''}
+              <span id="restore-default-btn" style="display:none"><button class="btn btn-sm" onclick="restoreDefaultTasks()" style="color:var(--text-3)">恢复默认</button></span>
             </div>
           </div>
           <div id="task-list"></div>
@@ -506,6 +548,7 @@ button {
           <div id="focus-tip" class="focus-tip" style="display:none"></div>
           <div class="btn-group">
             <button class="btn btn-green" onclick="checkIn()">完成今日打卡</button>
+            <button class="btn btn-purple" onclick="openContinueModal()">继续学习 →</button>
           </div>
         </div>
 
@@ -577,6 +620,31 @@ button {
       今日打卡完成！Excellent! 🎉 明天继续保持
     </div>
 
+  </div>
+</div>
+
+<!-- Continue Learning Modal -->
+<div class="continue-modal" id="continue-modal">
+  <div class="continue-content">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+      <h2 style="font-size:18px;font-weight:500">继续学习</h2>
+      <button onclick="closeContinueModal()" style="font-size:24px;background:none;border:none;cursor:pointer">&times;</button>
+    </div>
+    
+    <button class="continue-option" onclick="continueNextLesson()">
+      <div class="continue-option-title">① 下一课</div>
+      <div class="continue-option-desc">跳转当前进度 + 记录30分钟 + 生成新计划</div>
+    </button>
+    
+    <button class="continue-option" onclick="continueRecordTime()">
+      <div class="continue-option-title">② 记录时间</div>
+      <div class="continue-option-desc">直接输入额外学习的分钟数</div>
+    </button>
+    
+    <button class="continue-option" onclick="continueAddTask()">
+      <div class="continue-option-title">③ 添加任务</div>
+      <div class="continue-option-desc">添加自定义学习任务到今日列表</div>
+    </button>
   </div>
 </div>
 
@@ -1162,6 +1230,12 @@ function render(){
       syncCard.style.display = 'none';
     }
   }
+  
+  // Show/hide restore default button
+  const restoreBtn = document.getElementById('restore-default-btn');
+  if(restoreBtn){
+    restoreBtn.style.display = hasCustomTasks() ? 'inline-block' : 'none';
+  }
 }
 
 // ============ ACTIONS ============
@@ -1489,7 +1563,91 @@ window.onclick = function(e) {
   if(e.target.classList.contains('flashcard-modal')) {
     closeFlashcards();
   }
+  if(e.target.classList.contains('continue-modal')) {
+    closeContinueModal();
+  }
 };
+
+// ============ CONTINUE LEARNING ============
+function openContinueModal(){
+  document.getElementById('continue-modal').classList.add('show');
+}
+
+function closeContinueModal(){
+  document.getElementById('continue-modal').classList.remove('show');
+}
+
+function continueNextLesson(){
+  closeContinueModal();
+  
+  if(state.currentLesson >= LESSONS.length){
+    alert('已经是最后一课了！恭喜完成《你好法语》第一册！🎉');
+    return;
+  }
+  
+  state.currentLesson++;
+  state.weekMins += 30;
+  state.totalMins += 30;
+  
+  save();
+  render();
+  
+  alert('已跳转到下一课，记录30分钟学习 ✨');
+  
+  setTimeout(() => {
+    if(confirm('是否生成新的 AI 学习计划？')){
+      generatePlan(true);
+    }
+  }, 100);
+}
+
+function continueRecordTime(){
+  closeContinueModal();
+  
+  const mins = prompt('请输入学习分钟数：', '30');
+  if(!mins) return;
+  
+  const parsed = parseInt(mins);
+  if(isNaN(parsed) || parsed <= 0){
+    alert('请输入有效的分钟数');
+    return;
+  }
+  
+  state.weekMins += parsed;
+  state.totalMins += parsed;
+  
+  save();
+  render();
+  
+  alert(`已记录 ${parsed} 分钟学习 ✨`);
+}
+
+function continueAddTask(){
+  closeContinueModal();
+  
+  const name = prompt('输入任务名称：', '听力练习');
+  if(!name || !name.trim()) return;
+  
+  const dur = prompt('输入任务时长（如 20分钟）：', '20分钟');
+  if(!dur || !dur.trim()) return;
+  
+  const mins = parseInt(dur) || 20;
+  const newTask = { label: name.trim(), dur: dur.trim(), mins: mins };
+  
+  const we = isWeekend();
+  if(we){
+    if(!state.customWeekendTasks) state.customWeekendTasks = JSON.parse(JSON.stringify(WEEKEND_TASKS));
+    state.customWeekendTasks.push(newTask);
+  } else {
+    if(!state.customWeekdayTasks) state.customWeekdayTasks = JSON.parse(JSON.stringify(WEEKDAY_TASKS));
+    state.customWeekdayTasks.push(newTask);
+  }
+  
+  saveCustomTasks();
+  render();
+  
+  alert('已添加新任务到今日列表 ✨');
+}
 
 // Auto-fill setup form if credentials exist
 document.addEventListener('DOMContentLoaded', function(){
