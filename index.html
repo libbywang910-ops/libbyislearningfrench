@@ -1463,14 +1463,22 @@ async function askAI(){
         messages:[{role:'user',content:prompt}]
       })
     });
+    
+    if(!res.ok){
+      const err=await res.json();
+      throw new Error(err.error?.message||'API 请求失败，状态码：'+res.status);
+    }
+    
     const data=await res.json();
     state.aiPlan = data.choices[0].message.content;
     save();
     planEl.className='ai-plan';
     planEl.textContent=state.aiPlan;
+    alert('AI 分析完成！请查看上方的"AI 今日学习计划"区域');
   } catch(e){
     planEl.className='ai-plan error';
     planEl.textContent='分析失败：'+e.message;
+    alert('分析失败：'+e.message);
   }
 }
 
