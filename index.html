@@ -598,6 +598,9 @@ button {
             style="width:100%;min-height:100px;border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 12px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text);background:var(--surface2);resize:vertical;outline:none;line-height:1.7"
             oninput="saveVocab()"></textarea>
           <div style="font-size:11px;color:var(--text-3);margin-top:6px">自动保存 · Anki 录入参考</div>
+          <div class="btn-group">
+            <button class="btn btn-sm btn-purple" onclick="importVocabToCards()">📥 导入到单词卡片</button>
+          </div>
         </div>
 
         <!-- Reflection -->
@@ -1289,6 +1292,68 @@ function editProgress(){
 
 function saveVocab(){ state.vocabNote=document.getElementById('vocab-note').value; save(); }
 function saveReflection(){ state.reflection=document.getElementById('reflection').value; save(); }
+
+function importVocabToCards(){
+  const text = document.getElementById('vocab-note').value.trim();
+  if(!text){
+    alert('请先在"今日词汇笔记"中输入单词');
+    return;
+  }
+  
+  const lines = text.split('\n').filter(l => l.trim());
+  const cards = [];
+  const existingCards = JSON.parse(localStorage.getItem('fr_cards_v1')||'[]');
+  const existingFronts = existingCards.map(c => c.front.toLowerCase());
+  
+  lines.forEach(line => {
+    let front = '', back = '', notes = '';
+    
+    if(line.includes(' - ')){
+      const parts = line.split(' - ');
+      front = parts[0].trim();
+      back = parts.slice(1).join(' - ').trim();
+    } else if(line.includes(':')){
+      const parts = line.split(':');
+      front = parts[0].trim();
+      back = parts.slice(1).join(':').trim();
+    } else if(line.includes('->')){
+      const parts = line.split('->');
+      front = parts[0].trim();
+      back = parts.slice(1).join('->').trim();
+    } else {
+      return;
+    }
+    
+    if(front && back && !existingFronts.includes(front.toLowerCase())){
+      cards.push({
+        id: generateId(),
+        type: 'word',
+        front: front,
+        back: back,
+        notes: notes || undefined,
+        createdAt: Date.now(),
+        nextReview: Date.now(),
+        interval: 0,
+        repetitions: 0,
+        easeFactor: 2.5
+      });
+    }
+  });
+  
+  if(cards.length === 0){
+    alert('没有找到新的单词（或单词已存在）\n格式：bonjour - 你好');
+    return;
+  }
+  
+  const allCards = [...existingCards, ...cards];
+  localStorage.setItem('fr_cards_v1', JSON.stringify(allCards));
+  
+  if(hasCloudConfig()){
+    saveToCloud({ dashboard: state, cards: allCards, updatedAt: Date.now() });
+  }
+  
+  alert(`成功导入 ${cards.length} 张单词卡片！\n可以在"单词卡片"中查看`);
+}
 
 // ============ GROQ API ============
 async function generatePlan(force){
